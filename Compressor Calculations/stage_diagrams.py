@@ -12,7 +12,7 @@ _UTILS_DIR = Path(__file__).resolve().parent.parent / "Utils"
 if str(_UTILS_DIR) not in sys.path:
     sys.path.insert(0, str(_UTILS_DIR))
 
-from plotting import hline_label, ke_arrow, plot_parameter_table, plot_velocity_triangles
+from plotting import hline_label, ke_arrow, multistage_hs_diagram, plot_parameter_table, plot_velocity_triangles
 
 __all__ = [
     "plot_velocity_triangles",
@@ -20,6 +20,7 @@ __all__ = [
     "compressor_stage_hs_ladder",
     "compressor_stage_parameter_sections",
     "compressor_stage_diagrams",
+    "compressor_multistage_hs_diagram",
 ]
 
 
@@ -87,6 +88,24 @@ def compressor_stage_hs_ladder(result, cp, gamma, ax=None):
     ax.set_title("h-s Diagram for Compressor Stage", fontsize=16, fontweight="bold")
     ax.grid(True, axis="x", alpha=0.2)
     return ax
+
+
+# ============================================================
+# MULTI-STAGE REHEAT-FACTOR H-S DIAGRAM
+# ============================================================
+
+
+def compressor_multistage_hs_diagram(T01_first, P01_first, compressor_stages, cp, gamma, ax=None):
+    """Multi-stage reheat-factor h-s diagram (Utils/plotting.py) across ALL
+    of a compressor's stages -- distinct from compressor_stage_hs_ladder
+    above, which shows one representative stage's own rotor+stator path.
+    T01_first/P01_first are the compressor's own inlet stagnation state
+    (not stored on any individual CompressorStageResult); each subsequent
+    stage's inlet is the previous stage's T03/P03 exit.
+
+    Returns (ax, MultistageHsResult)."""
+    stagnation_states = [(T01_first, P01_first)] + [(s.T03, s.P03) for s in compressor_stages]
+    return multistage_hs_diagram(stagnation_states, cp, gamma, ax=ax)
 
 
 # ============================================================

@@ -6,6 +6,7 @@ mean-line stage modules.
 """
 
 import math
+from dataclasses import dataclass
 
 
 # ============================================================
@@ -118,6 +119,127 @@ def hline_label(ax, y, x_end, s_label, ls, text):
 def ke_arrow(ax, s_pos, y_lo, y_hi, label, ha="left"):
     ax.annotate("", xy=(s_pos, y_hi), xytext=(s_pos, y_lo), arrowprops=dict(arrowstyle="<|-|>", linewidth=1.0, color="black", shrinkA=0, shrinkB=0))
     ax.text(s_pos + (0.02 if ha == "left" else -0.02), 0.5 * (y_lo + y_hi), label, va="center", ha=ha, fontsize=11)
+
+
+# ============================================================
+# MULTI-STAGE REHEAT-FACTOR H-S DIAGRAM
+# ============================================================
+#
+# The single-stage h-s ladders above (in stage_diagrams.py/turbine_stage_
+# diagrams.py) show ONE stage's stator+rotor path. This is a different,
+# classic diagram (Cohen/Rogers/Saravanamuttoo, "Gas Turbine Theory";
+# Dixon & Hall) showing how SUCCESSIVE STAGES stack up: the real path
+# 1->2->...->N, each stage's own LOCAL isentropic point (computed from that
+# stage's own real, already-heated inlet -- e.g. "3s" from real state 2),
+# and the OVERALL isentropic point at each stage's exit pressure,
+# referenced back to the very first state's entropy (e.g. "3ss", sharing
+# entropy with state 1 and "2s"). The gap between "3s" and "3ss" is the
+# reheat effect: a real upstream stage leaves the working fluid hotter
+# (higher entropy) than an ideal one would, so the next stage's own local
+# ideal work is bigger than its share of the single overall ideal path --
+# summed across all stages this is the reheat factor, RF >= 1 for a
+# compression process.
+
+
+@dataclass(frozen=True)
+class HsPoint:
+    label: str
+    s: float
+    h: float
+
+
+@dataclass(frozen=True)
+class MultistageHsResult:
+    reheat_factor: float
+    real_points: list  # HsPoint, index 0 = inlet, index i = stage i's real exit
+    local_ideal_points: list  # HsPoint, index i-1 = stage i's own local isentropic point
+    overall_ideal_points: list  # HsPoint, index i-2 = stage i's overall isentropic point (i>=2; stage 1's overall == its local)
+
+
+def multistage_hs_diagram(stagnation_states, cp, gamma, ax=None):
+    """stagnation_states: [(T0_0, P0_0), (T0_1, P0_1), ..., (T0_N, P0_N)] --
+    state 0 is the inlet to stage 1, state i (i=1..N) is stage i's REAL
+    exit condition. cp/gamma are assumed constant across all stages (valid
+    for a single compressor's cold air, or a single turbine's hot gas).
+
+    Returns (ax, MultistageHsResult)."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if len(stagnation_states) < 2:
+        raise ValueError("stagnation_states needs at least 2 entries (inlet + >=1 stage exit)")
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(11, 7.5))
+
+    T0_ref, P0_ref = stagnation_states[0]
+    R = cp * (gamma - 1.0) / gamma
+
+    def entropy(T, P):
+        return cp * math.log(T / T0_ref) - R * math.log(P / P0_ref)
+
+    def enthalpy(T):
+        return cp * T
+
+    n_stages = len(stagnation_states) - 1
+
+    real_points = [HsPoint("1", 0.0, enthalpy(T0_ref))]
+    local_ideal_points = []
+    overall_ideal_points = []
+    total_local_ideal_work = 0.0
+
+    T_prev, P_prev, s_prev = T0_ref, P0_ref, 0.0
+    for i in range(1, n_stages + 1):
+        T_i, P_i = stagnation_states[i]
+        s_i = entropy(T_i, P_i)
+        real_points.append(HsPoint(str(i + 1), s_i, enthalpy(T_i)))
+
+        T_local_s = T_prev * (P_i / P_prev) ** ((gamma - 1.0) / gamma)
+        local_ideal_points.append(HsPoint(f"{i + 1}s", s_prev, enthalpy(T_local_s)))
+        total_local_ideal_work += enthalpy(T_local_s) - enthalpy(T_prev)
+
+        if i >= 2:
+            T_overall_s = T0_ref * (P_i / P0_ref) ** ((gamma - 1.0) / gamma)
+            overall_ideal_points.append(HsPoint(f"{i + 1}ss", 0.0, enthalpy(T_overall_s)))
+
+        T_prev, P_prev, s_prev = T_i, P_i, s_i
+
+    h_N_ss = overall_ideal_points[-1].h if overall_ideal_points else local_ideal_points[-1].h
+    overall_ideal_work = h_N_ss - real_points[0].h
+    reheat_factor = total_local_ideal_work / overall_ideal_work
+
+    # Isobar curves: for a perfect gas, h(s) at fixed P is exact given this
+    # project's entropy convention (s = cp*ln(T/Tref) - R*ln(P/Pref)), so
+    # these are the real thermodynamic isobars, not a visual approximation.
+    all_s = [p.s for p in real_points + local_ideal_points + overall_ideal_points]
+    s_span = max(all_s) - min(all_s) if max(all_s) > min(all_s) else 1.0
+    for i, (T_i, P_i) in enumerate(stagnation_states):
+        s_lo, s_hi = min(all_s) - 0.05 * s_span, max(all_s) + 0.05 * s_span
+        s_samples = np.linspace(s_lo, s_hi, 60)
+        T_samples = T0_ref * np.exp((s_samples + R * math.log(P_i / P0_ref)) / cp)
+        ax.plot(s_samples, cp * T_samples, color="#9aa0a6", lw=1.0, ls="-", zorder=1)
+        ax.annotate(f"$p_{{{i + 1}}}$", xy=(s_hi, cp * T_samples[-1]), xytext=(4, 0), textcoords="offset points", color="#5f6368", fontsize=10, va="center")
+
+    ax.plot([p.s for p in real_points], [p.h for p in real_points], color="black", lw=2.5, zorder=5)
+    ax.scatter([p.s for p in real_points], [p.h for p in real_points], color="black", s=45, zorder=6)
+    for p in real_points:
+        ax.annotate(p.label, xy=(p.s, p.h), xytext=(6, 6), textcoords="offset points", fontsize=12, fontweight="bold")
+
+    for p in local_ideal_points + overall_ideal_points:
+        ax.scatter([p.s], [p.h], color="#666666", s=35, zorder=6)
+        ax.annotate(p.label, xy=(p.s, p.h), xytext=(6, -12), textcoords="offset points", fontsize=10, color="#444444")
+
+    ax.set_xlabel("Entropy  s  (J/kg·K)")
+    ax.set_ylabel("Enthalpy  h  (J/kg)")
+    ax.set_title(f"Multi-Stage h-s Diagram (reheat factor = {reheat_factor:.4f})", fontsize=14, fontweight="bold")
+    ax.grid(True, alpha=0.2)
+
+    return ax, MultistageHsResult(
+        reheat_factor=reheat_factor,
+        real_points=real_points,
+        local_ideal_points=local_ideal_points,
+        overall_ideal_points=overall_ideal_points,
+    )
 
 
 # ============================================================

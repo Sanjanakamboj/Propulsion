@@ -49,7 +49,7 @@ from residence_time import residence_time as compute_residence_time  # noqa: E40
 from rotor_blade_design import BladeSizingInputs, size_rotor_blade  # noqa: E402
 from sanity_checks import compressor_stage_sanity_check, format_sanity_report  # noqa: E402
 from stacking import stack_sections  # noqa: E402
-from stage_diagrams import compressor_stage_diagrams  # noqa: E402
+from stage_diagrams import compressor_multistage_hs_diagram, compressor_stage_diagrams  # noqa: E402
 from SU2 import SU2CascadeInputs, plot_mesh_quality, run_su2, write_su2_config  # noqa: E402
 from thrust import compute_thrust as compute_nozzle_thrust  # noqa: E402
 from turbine import TurbineStageDesignInputs, design_turbine_stages  # noqa: E402
@@ -92,6 +92,7 @@ LOG_COLUMNS = [
     "turbine_num_blades",
     "turbine_chord_m",
     "turbine_throat_m",
+    "compressor_reheat_factor",
     "combustor_equivalence_ratio",
     "combustor_residence_time_ms",
     "nozzle_choke_status",
@@ -337,6 +338,18 @@ def main():
         save_prefix=str(output_dir / "turbine_stage"),
     )
 
+    # Multi-stage reheat-factor h-s diagram across ALL compressor stages --
+    # distinct from compressor_stage_diagrams above (which shows one
+    # representative stage's own rotor+stator path). Turbine only has 2
+    # stages in this design point, where the single-stage ladder above
+    # already covers what matters; the compressor's many stages are where
+    # the inter-stage reheat effect actually shows up.
+    multistage_hs_ax, multistage_hs_result = compressor_multistage_hs_diagram(
+        station2.T0, station2.P0, compressor_stages, sized_design.cold_gas.cp, sized_design.cold_gas.gamma,
+    )
+    multistage_hs_ax.figure.tight_layout()
+    multistage_hs_ax.figure.savefig(str(output_dir / "compressor_multistage_hs_diagram.png"), dpi=150, bbox_inches="tight")
+
     # Compressor: chord/blade-count sizing only. Zweifel's criterion (used
     # for the pitch) is a turbine (accelerating-cascade) loading criterion --
     # applied to a compressor's much smaller flow turning it predicts a pitch
@@ -515,6 +528,7 @@ def main():
             "turbine_num_blades": turbine_blade_sizing.num_blades,
             "turbine_chord_m": turbine_blade_sizing.chord,
             "turbine_throat_m": turbine_passage.throat,
+            "compressor_reheat_factor": multistage_hs_result.reheat_factor,
             "combustor_equivalence_ratio": combustion_state.equivalence_ratio,
             "combustor_residence_time_ms": combustor_tau * 1e3,
             "nozzle_choke_status": nozzle_choke_assessment.status,
@@ -535,6 +549,7 @@ def main():
     print(f"  Compressor blade      = chord {compressor_blade_sizing.chord*1e3:.1f} mm, {compressor_blade_sizing.num_blades} blades (2D section skipped -- see note above on Zweifel vs diffusion factor)")
     print(f"  Turbine blade         = chord {turbine_blade_sizing.chord*1e3:.1f} mm, {turbine_blade_sizing.num_blades} blades, throat {turbine_passage.throat*1e3:.2f} mm")
     print(f"  Turbine blade 3D      = {len(spanwise_sections)} spanwise sections, {n_blade_triangles} STL triangles")
+    print(f"  Compressor reheat RF  = {multistage_hs_result.reheat_factor:.4f} (across {len(compressor_stages)} stages)")
     print(f"  Combustor             = phi {combustion_state.equivalence_ratio:.3f} ({combustion_state.regime}), residence time {combustor_tau*1e3:.2f} ms")
     print(f"  Nozzle                = {nozzle_choke_assessment.status}, V_exit {nozzle_exit_state.V_exit:.1f} m/s")
     print(f"  Cycle diagrams saved  {diagram_path}")

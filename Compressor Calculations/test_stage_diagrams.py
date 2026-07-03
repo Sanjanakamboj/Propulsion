@@ -6,8 +6,9 @@ matplotlib.use("Agg")
 
 import pytest
 
-from compressor import CompressorStageDesignInputs, solve_compressor_stage
+from compressor import CompressorStageDesignInputs, design_compressor_stages, solve_compressor_stage
 from stage_diagrams import (
+    compressor_multistage_hs_diagram,
     compressor_stage_diagrams,
     compressor_stage_hs_ladder,
     compressor_stage_parameter_sections,
@@ -87,3 +88,33 @@ def test_compressor_stage_diagrams_saves_three_files(compressor_result, tmp_path
     assert (tmp_path / "compressor_velocity_triangles.png").exists()
     assert (tmp_path / "compressor_hs_diagram.png").exists()
     assert (tmp_path / "compressor_table.png").exists()
+
+
+@pytest.fixture
+def multistage_compressor():
+    design = CompressorStageDesignInputs(
+        stage_loading=0.35, flow_coefficient=0.5, degree_of_reaction=0.5,
+        blade_speed_limit=350.0, rotational_speed_rpm=8000.0,
+    )
+    return design_compressor_stages(
+        T01=288.15, P01=101_325.0, total_specific_work=300_000.0,
+        mass_flow=50.0, cp=COMPRESSOR_CP, gamma=COMPRESSOR_GAMMA, design=design,
+    )
+
+
+def test_compressor_multistage_hs_diagram_real_path_matches_stage_chain(multistage_compressor):
+    ax, result = compressor_multistage_hs_diagram(288.15, 101_325.0, multistage_compressor, COMPRESSOR_CP, COMPRESSOR_GAMMA)
+    assert len(result.real_points) == len(multistage_compressor) + 1
+    assert result.real_points[0].h == pytest.approx(COMPRESSOR_CP * 288.15)
+    for i, stage in enumerate(multistage_compressor, start=1):
+        assert result.real_points[i].h == pytest.approx(COMPRESSOR_CP * stage.T03, rel=1e-9)
+
+
+def test_compressor_multistage_hs_diagram_shows_reheat_factor_above_one_for_a_real_compressor(multistage_compressor):
+    # A real (lossy, stage_efficiency < 1) multi-stage compressor should
+    # always show a genuine reheat penalty -- more total local-ideal work
+    # is needed than the single overall isentropic path would require.
+    ax, result = compressor_multistage_hs_diagram(288.15, 101_325.0, multistage_compressor, COMPRESSOR_CP, COMPRESSOR_GAMMA)
+    assert result.reheat_factor > 1.0
+    assert ax.get_xlabel().startswith("Entropy")
+    assert "reheat factor" in ax.get_title().lower()
