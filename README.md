@@ -7,8 +7,16 @@ Given a mission (cruise Mach, altitude, required thrust) and a handful of design
 ## Quickstart
 
 ```bash
+git clone --recurse-submodules https://github.com/Sanjanakamboj/Propulsion.git
+cd Propulsion
 pip install -r requirements.txt
 python3 design_engine.py
+```
+
+`Blade Geometry Generator/parablade-master` is a git submodule pointing to [NAnand-TUD/parablade](https://github.com/NAnand-TUD/parablade) rather than vendored source — if you already cloned without `--recurse-submodules`, fetch it with:
+
+```bash
+git submodule update --init
 ```
 
 Edit [`engine_inputs.txt`](engine_inputs.txt) (plain INI format, comments explain every field) and re-run `design_engine.py` to design a new engine. Each run writes to `Results/<run_id>/` (cycle diagrams, per-stage tables/diagrams, blade geometry plots, sanity-check report) and appends one row to `design_log.xlsx` (never overwritten).

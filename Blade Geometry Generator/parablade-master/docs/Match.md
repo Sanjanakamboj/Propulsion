@@ -1,3 +1,0 @@
-# ParaBlade
-
-## Blade Matching

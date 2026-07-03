@@ -1,0 +1,3 @@
+[submodule "Blade Geometry Generator/parablade-master"]
+	path = Blade Geometry Generator/parablade-master
+	url = https://github.com/NAnand-TUD/parablade.git
