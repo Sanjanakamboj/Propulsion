@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated run outputs (reproducible from engine_inputs.txt via design_engine.py)
+Results/
+design_log.xlsx
+
+# OS
+.DS_Store

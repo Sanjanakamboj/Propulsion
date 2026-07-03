@@ -1,0 +1,69 @@
+# Gas Turbine Engine Design Inputs
+# Edit these values and re-run design_engine.py to design a new engine.
+# Lines starting with # are comments.
+
+[mission]
+cruise_mach = 0.82
+cruise_altitude_m = 11000
+required_thrust_N = 120000
+
+[cycle]
+compressor_pressure_ratio = 24.0
+compressor_efficiency = 0.87
+turbine_inlet_temperature = 1700.0
+turbine_efficiency = 0.90
+mechanical_efficiency = 0.99
+combustor_pressure_loss_frac = 0.04
+combustor_efficiency = 0.99
+fuel_lhv = 43e6
+nozzle_efficiency = 0.98
+inlet_pressure_recovery = 0.98
+
+[sizing]
+axial_mach = 0.5
+hub_to_tip_ratio = 0.5
+
+[shaft]
+# Single-spool engine: compressor and turbine share this rotational speed.
+rotational_speed_rpm = 8000
+
+[compressor_stage]
+stage_loading = 0.35
+flow_coefficient = 0.5
+degree_of_reaction = 0.5
+blade_speed_limit = 350.0
+stage_efficiency = 0.90
+max_stages = 20
+
+[turbine_stage]
+stage_loading = 1.8
+flow_coefficient = 0.5
+degree_of_reaction = 0.35
+blade_speed_limit = 350.0
+stator_efficiency = 0.90
+rotor_efficiency = 0.90
+inlet_mach_number = 0.15
+max_stages = 8
+
+[blade_geometry]
+# Rotor blade chord/pitch/blade-count sizing (Zweifel criterion), applied to
+# the representative (repeating) stage of each machine.
+aspect_ratio = 1.0
+zweifel_coefficient = 1.0
+stagger_angle_deg = 39.0
+thickness_to_chord = 0.25
+te_radius_m = 0.0007
+le_radius_fraction_of_pitch = 0.05
+
+[cfd]
+# 3-blade cascade CFD of the turbine rotor blade (compressor blade section
+# generation is currently skipped -- see Blade Geometry Generator notes --
+# so there's no compressor blade to mesh yet).
+# The fast geometry pre-check (no meshing tool needed) always runs.
+# run_cfd = false additionally generates a GMSH mesh and runs the real SU2_CFD
+# solver -- a full run takes a few minutes (~0.06 s/iteration on an ~18k-node
+# mesh), so it's opt-in rather than part of every fast design iteration.
+run_cfd = false
+su2_binary = /Users/sanju/Downloads/bin/SU2_CFD
+inner_iterations = 1000
+reynolds_number = 1.0e6
