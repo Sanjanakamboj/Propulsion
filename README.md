@@ -19,7 +19,17 @@ python3 design_engine.py
 git submodule update --init
 ```
 
-Edit [`engine_inputs.txt`](engine_inputs.txt) (plain INI format, comments explain every field) and re-run `design_engine.py` to design a new engine. Each run writes to `Results/<run_id>/` (cycle diagrams, per-stage tables/diagrams, blade geometry plots, sanity-check report) and appends one row to `design_log.xlsx` (never overwritten).
+Edit [`engine_inputs.txt`](engine_inputs.txt) (plain INI format, comments explain every field) and re-run `design_engine.py` to design a new engine. Each run writes to `Results/<run_id>/`:
+
+- Cycle T-s/P-v diagrams and per-stage CSVs (Brayton Cycle Analysis)
+- Compressor and turbine stage velocity-triangle/h-s/parameter-table diagrams (Compressor/Turbine Calculations)
+- Turbine blade passage geometry, plus a full 3D blade (free-vortex twist across hub/mean/tip, exported as CSV + STL, with a 3D visualization) — compressor blade geometry is currently skipped, see Scope below
+- Combustor equivalence-ratio gauge and parameter table (Combustor Analysis)
+- Nozzle parameter table and thrust breakdown chart (Nozzle Analysis)
+- A cascade-domain preview (and, if `run_cfd = true`, a full GMSH+SU2 CFD run)
+- A PASS/FAIL sanity-check report
+
+...and appends one row to `design_log.xlsx` next to this script (never overwritten). See [`Results/example_run`](Results/example_run) for a complete sample of everything one run produces (including [`design_log.example.xlsx`](Results/example_run/design_log.example.xlsx) — the live `design_log.xlsx` itself isn't committed, since it accumulates with every local run).
 
 ## Project layout
 

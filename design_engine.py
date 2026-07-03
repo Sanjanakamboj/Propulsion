@@ -27,23 +27,38 @@ sys.path.insert(0, str(TOOLKIT_ROOT / "Compressor Calculations"))
 sys.path.insert(0, str(TOOLKIT_ROOT / "Turbine Calculations"))
 sys.path.insert(0, str(TOOLKIT_ROOT / "Blade Geometry Generator"))
 sys.path.insert(0, str(TOOLKIT_ROOT / "CFD Analysis"))
+sys.path.insert(0, str(TOOLKIT_ROOT / "Combustor Analysis"))
+sys.path.insert(0, str(TOOLKIT_ROOT / "Nozzle Analysis"))
 sys.path.insert(0, str(TOOLKIT_ROOT / "Utils"))
 
 from blade_passage_geometry import compute_passage_geometry, plot_blade_passage, plot_passage_width  # noqa: E402
 from blade_section import BladeSectionInputs, build_blade_section  # noqa: E402
+from blade_sections import generate_spanwise_sections  # noqa: E402
+from combustion import assess_combustion  # noqa: E402
 from compressor import CompressorStageDesignInputs, design_compressor_stages  # noqa: E402
+from converging import solve_converging_nozzle  # noqa: E402
+from choking import assess_choking as assess_nozzle_choking  # noqa: E402
 from diagrams import plot_cycle_diagrams  # noqa: E402
 from engine import TurbojetDesignInputs  # noqa: E402
 from engine_sizing import size_engine  # noqa: E402
+from export_csv import write_blade_csv  # noqa: E402
+from export_stl import write_blade_stl  # noqa: E402
 from mesh import build_cascade_domain, generate_cascade_mesh, plot_cascade_domain  # noqa: E402
 from mission import MissionRequirements  # noqa: E402
+from residence_time import residence_time as compute_residence_time  # noqa: E402
 from rotor_blade_design import BladeSizingInputs, size_rotor_blade  # noqa: E402
 from sanity_checks import compressor_stage_sanity_check, format_sanity_report  # noqa: E402
+from stacking import stack_sections  # noqa: E402
 from stage_diagrams import compressor_stage_diagrams  # noqa: E402
 from SU2 import SU2CascadeInputs, plot_mesh_quality, run_su2, write_su2_config  # noqa: E402
+from thrust import compute_thrust as compute_nozzle_thrust  # noqa: E402
 from turbine import TurbineStageDesignInputs, design_turbine_stages  # noqa: E402
 from turbine_sanity_checks import turbine_stage_sanity_check  # noqa: E402
 from turbine_stage_diagrams import turbine_stage_diagrams  # noqa: E402
+from visualization import plot_stacked_blade  # noqa: E402
+
+from combustor_plots import combustor_diagrams  # noqa: E402
+from nozzle_plots import nozzle_diagrams  # noqa: E402
 
 LOG_COLUMNS = [
     "run_id",
@@ -77,6 +92,9 @@ LOG_COLUMNS = [
     "turbine_num_blades",
     "turbine_chord_m",
     "turbine_throat_m",
+    "combustor_equivalence_ratio",
+    "combustor_residence_time_ms",
+    "nozzle_choke_status",
     "output_dir",
 ]
 
@@ -161,11 +179,13 @@ def load_inputs(path: Path):
         reynolds_number=cfd_cfg.getfloat("reynolds_number"),
     )
 
+    combustor_volume_m3 = config["combustor"].getfloat("combustor_volume_m3")
+
     return (
         mission, design, sizing_params,
         compressor_design, compressor_max_stages,
         turbine_design, turbine_max_stages,
-        blade_design, cfd_params,
+        blade_design, cfd_params, combustor_volume_m3,
     )
 
 
@@ -258,6 +278,7 @@ def main():
         turbine_max_stages,
         blade_design,
         cfd_params,
+        combustor_volume_m3,
     ) = load_inputs(TOOLKIT_ROOT / "engine_inputs.txt")
 
     sizing, sized_design, results, stage_records = size_engine(design, mission.required_thrust_N, **sizing_params)
@@ -343,12 +364,74 @@ def main():
         save_prefix=str(output_dir / "turbine_blade"),
     )
 
+    hot_gas = sized_design.hot_gas
+    turbine_stage = turbine_stages[0]
+
+    # Full 3D turbine blade (Blade Geometry Generator): free-vortex twist at
+    # hub/mean/tip, stacked into one 3D geometry, exported to CSV/STL plus a
+    # 3D visualization. Turbine only, for the same reason the compressor's
+    # 2D section is skipped above. hub/tip radius averaged between
+    # annulus_2 (LE) and annulus_3 (TE) since size_rotor_blade already
+    # collapses to one mean_diameter for the whole blade.
+    hub_radius_avg = (turbine_stage.annulus_2.hub_radius + turbine_stage.annulus_3.hub_radius) / 2.0
+    tip_radius_avg = (turbine_stage.annulus_2.tip_radius + turbine_stage.annulus_3.tip_radius) / 2.0
+    spanwise_sections = generate_spanwise_sections(
+        Vt_in_mean=turbine_stage.Vt2, Vt_out_mean=turbine_stage.Vt3, U_mean=turbine_stage.U, Vx=turbine_stage.Vx,
+        beta_in_mean_deg=turbine_stage.beta2_deg, beta_out_mean_deg=turbine_stage.beta3_deg,
+        mean_radius=turbine_stage.annulus_2.mean_diameter / 2.0,
+        hub_radius=hub_radius_avg, tip_radius=tip_radius_avg,
+        stagger_angle_deg=blade_design.stagger_angle_deg, axial_chord=turbine_blade_sizing.axial_chord,
+        le_radius_over_cx=turbine_blade_sizing.le_radius / turbine_blade_sizing.axial_chord,
+        te_radius_over_cx=turbine_blade_sizing.te_radius / turbine_blade_sizing.axial_chord,
+        n_sections=3,
+    )
+    turbine_blade_3d = stack_sections(spanwise_sections)
+    blade_3d_ax = plot_stacked_blade(turbine_blade_3d)
+    blade_3d_ax.figure.savefig(str(output_dir / "turbine_blade_3d.png"), dpi=150, bbox_inches="tight")
+    write_blade_csv(turbine_blade_3d, str(output_dir / "turbine_blade_3d.csv"))
+    n_blade_triangles = write_blade_stl(turbine_blade_3d, str(output_dir / "turbine_blade_3d.stl"))
+
+    # Combustor Analysis: equivalence ratio, pressure loss, residence time --
+    # reports the SAME fuel_air_ratio the 0D cycle (stages.py's Combustor)
+    # already solved, in this folder's own terms, plus the residence-time
+    # check the 0D cycle doesn't do.
+    station3 = results.stations["3"]
+    combustion_state = assess_combustion(results.fuel_air_ratio)
+    rho_combustor_exit = station4.P0 / (hot_gas.R * station4.T0)
+    combustor_tau = compute_residence_time(combustor_volume_m3, station4.mdot, rho_combustor_exit)
+    combustor_diagrams(
+        T_in=station3.T0, T_exit=station4.T0, P_in=station3.P0, P_out=station4.P0,
+        far=results.fuel_air_ratio, combustion_state=combustion_state, tau=combustor_tau,
+        save_prefix=str(output_dir / "combustor"),
+    )
+
+    # Nozzle Analysis: independent converging-nozzle solve + choking status +
+    # thrust breakdown, fed from the same station5 the 0D cycle already
+    # solved (stages.py's Nozzle) -- numerically reproduces that same exit
+    # state (validated separately in Nozzle Analysis/test_converging.py),
+    # and additionally breaks thrust into its momentum/pressure components.
+    station5 = results.stations["5"]
+    R_hot = hot_gas.cp * (hot_gas.gamma - 1.0) / hot_gas.gamma
+    nozzle_exit_state = solve_converging_nozzle(
+        T0_in=station5.T0, P0_in=station5.P0, P_ambient=design.ambient_P,
+        cp=hot_gas.cp, gamma=hot_gas.gamma, R=R_hot, isentropic_efficiency=design.nozzle_efficiency,
+    )
+    nozzle_choke_assessment = assess_nozzle_choking(station5.P0, design.ambient_P, hot_gas.gamma)
+    rho_nozzle_exit = nozzle_exit_state.P_exit / (R_hot * nozzle_exit_state.T_exit)
+    nozzle_thrust_breakdown = compute_nozzle_thrust(
+        mdot_gas=station5.mdot, V_exit=nozzle_exit_state.V_exit, P_exit=nozzle_exit_state.P_exit,
+        P_ambient=design.ambient_P, rho_exit=rho_nozzle_exit, mdot_air=sizing.mdot_air,
+        V0=results.flight_velocity, fuel_flow=results.fuel_flow,
+    )
+    nozzle_diagrams(
+        nozzle_exit_state, nozzle_choke_assessment, nozzle_thrust_breakdown,
+        save_prefix=str(output_dir / "nozzle"),
+    )
+
     # CFD: 3-blade cascade of the turbine rotor blade (compressor blade
     # section is skipped for the same reason noted above, so there's no
     # compressor blade to mesh yet). The fast geometry pre-check always
     # runs; the real GMSH mesh + SU2 solve only run if cfd_params.run_cfd.
-    hot_gas = sized_design.hot_gas
-    turbine_stage = turbine_stages[0]
     domain = build_cascade_domain(
         turbine_blade, turbine_blade_sizing.axial_chord, turbine_blade_sizing.pitch,
         beta_in_deg=turbine_stage.beta2_deg, beta_out_deg=turbine_stage.beta3_deg,
@@ -432,6 +515,9 @@ def main():
             "turbine_num_blades": turbine_blade_sizing.num_blades,
             "turbine_chord_m": turbine_blade_sizing.chord,
             "turbine_throat_m": turbine_passage.throat,
+            "combustor_equivalence_ratio": combustion_state.equivalence_ratio,
+            "combustor_residence_time_ms": combustor_tau * 1e3,
+            "nozzle_choke_status": nozzle_choke_assessment.status,
             "output_dir": str(output_dir),
         },
     )
@@ -448,6 +534,9 @@ def main():
     print(f"  Turbine stages        = {len(turbine_stages)} (mean diameter {sum(turbine_diameters)/len(turbine_diameters):.2f} m)")
     print(f"  Compressor blade      = chord {compressor_blade_sizing.chord*1e3:.1f} mm, {compressor_blade_sizing.num_blades} blades (2D section skipped -- see note above on Zweifel vs diffusion factor)")
     print(f"  Turbine blade         = chord {turbine_blade_sizing.chord*1e3:.1f} mm, {turbine_blade_sizing.num_blades} blades, throat {turbine_passage.throat*1e3:.2f} mm")
+    print(f"  Turbine blade 3D      = {len(spanwise_sections)} spanwise sections, {n_blade_triangles} STL triangles")
+    print(f"  Combustor             = phi {combustion_state.equivalence_ratio:.3f} ({combustion_state.regime}), residence time {combustor_tau*1e3:.2f} ms")
+    print(f"  Nozzle                = {nozzle_choke_assessment.status}, V_exit {nozzle_exit_state.V_exit:.1f} m/s")
     print(f"  Cycle diagrams saved  {diagram_path}")
     print(f"  Stage tables/diagrams {output_dir}")
     print(f"  Logged to             {TOOLKIT_ROOT / 'design_log.xlsx'}")

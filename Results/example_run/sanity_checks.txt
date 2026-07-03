@@ -1,0 +1,19 @@
+
+===== Compressor Stage (representative) =====
+de Haller (W2/W1)            | limit: > 0.72          | value:     0.7099 -            | FAIL
+Relative Mach Mw1            | limit: < 0.85          | value:     0.9686 -            | FAIL
+Absolute Mach M1             | limit: < 0.85          | value:     0.6876 -            | PASS
+Hub-to-tip ratio             | limit: > 0.4           | value:     0.0700 -            | FAIL
+AN^2                         | limit: < 30000000.0    | value: 119932911.9252 m^2 rpm^2    | FAIL
+SOME CHECKS FAILED -- review design point
+
+===== Turbine Stage (representative) =====
+Absolute Mach M2             | limit: 0.7 - 0.85      | value:     0.6747 -            | FAIL
+Relative flow angle beta2    | limit: < 47.5          | value:    42.9725 deg          | PASS
+Relative Mach Mw2            | limit: < 0.5           | value:     0.2977 -            | PASS
+Relative Mach Mw3            | limit: 0.65 - 0.8      | value:     0.6366 -            | FAIL
+Relative flow angle beta3    | limit: < 75.0          | value:    69.4561 deg          | PASS
+Total turning (beta2+beta3)  | limit: 110.0 - 120.0   | value:   112.4286 deg          | PASS
+Exit swirl alpha3            | limit: < 35.0          | value:    33.7580 deg          | PASS
+AN^2                         | limit: < 30000000.0    | value: 47103563.1031 m^2 rpm^2    | FAIL
+SOME CHECKS FAILED -- review design point

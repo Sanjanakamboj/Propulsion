@@ -5,7 +5,7 @@ matplotlib.use("Agg")
 import pytest
 
 from combustion import assess_combustion
-from plots import combustor_diagrams, combustor_parameter_sections, plot_equivalence_ratio_gauge
+from combustor_plots import combustor_diagrams, combustor_parameter_sections, plot_equivalence_ratio_gauge
 
 T_IN, T_EXIT = 663.7319017566193, 1700.0
 P_IN, P_OUT = 827846.8017565166, 794732.9296862559

@@ -7,7 +7,7 @@ import pytest
 from choking import assess_choking
 from converging import solve_converging_nozzle
 from converging_diverging import solve_cd_nozzle_design_matched
-from plots import nozzle_diagrams, nozzle_parameter_sections, plot_thrust_breakdown
+from nozzle_plots import nozzle_diagrams, nozzle_parameter_sections, plot_thrust_breakdown
 from thrust import compute_thrust
 
 GAMMA = 1.333

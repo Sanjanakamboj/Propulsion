@@ -55,6 +55,12 @@ thickness_to_chord = 0.25
 te_radius_m = 0.0007
 le_radius_fraction_of_pitch = 0.05
 
+[combustor]
+# Combustor liner volume, used only for the residence-time check (Combustor
+# Analysis/residence_time.py) -- this 0D cycle model has no combustor
+# geometry of its own, so this is a plain design input, not derived.
+combustor_volume_m3 = 0.05
+
 [cfd]
 # 3-blade cascade CFD of the turbine rotor blade (compressor blade section
 # generation is currently skipped -- see Blade Geometry Generator notes --
